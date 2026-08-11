@@ -155,7 +155,19 @@ class YOLODetector:
                     break
 
                 try:
-                    results = self.model(frame, conf=self.confidence)
+                    # ---------------------------------------------------------
+                    # MODIFICACIÓN PARA TRACKING
+                    # Usamos .track() en lugar de llamada directa.
+                    # persist=True mantiene el ID del objeto entre frames.
+                    # tracker="bytetrack.yaml" usa el algoritmo ByteTrack (muy rápido y preciso).
+                    # ---------------------------------------------------------
+                    results = self.model.track(
+                        frame, 
+                        conf=self.confidence, 
+                        persist=True, 
+                        tracker="bytetrack.yaml",
+                        verbose=False # Apaga el log interno de YOLO por frame para no saturar tu logger
+                    )
                 except Exception as exc:
                     self.logger.error(f"Error en la inferencia YOLO: {exc}")
                     break
@@ -165,17 +177,22 @@ class YOLODetector:
                     frame_count += 1
                     continue
 
+                # results[0].plot() automáticamente dibujará los IDs de seguimiento
                 annotated_frame = results[0].plot()
                 detections = results[0].boxes
-                self.logger.info(f"Frame {frame_count}: {len(detections)} detecciones")
+                
+                # Extraer los IDs únicos detectados en este frame
+                track_ids = detections.id.int().cpu().tolist() if detections.id is not None else []
+                
+                self.logger.info(f"Frame {frame_count}: {len(detections)} detecciones. IDs rastreados: {track_ids}")
 
                 cv2.putText(annotated_frame,
-                            f"Detecciones: {len(detections)}",
+                            f"Objetos rastreados: {len(track_ids)}",
                             (10, 30),
                             cv2.FONT_HERSHEY_SIMPLEX,
                             0.7, (0, 255, 0), 2)
 
-                cv2.imshow('YOLOv8 - Detección en Tiempo Real', annotated_frame)
+                cv2.imshow('YOLOv8 - Tracking en Tiempo Real', annotated_frame)
 
                 if writer:
                     writer.write(annotated_frame)
@@ -244,7 +261,7 @@ def main():
     args = parser.parse_args()
 
     logger = setup_logger('yolo_detector', log_file='logs/yolo_detector.log')
-    logger.info('\n Iniciando detector YOLO')
+    logger.info('Iniciando detector YOLO')
     
     detector = YOLODetector(model_name=args.model, confidence=args.conf, logger=logger)
     
