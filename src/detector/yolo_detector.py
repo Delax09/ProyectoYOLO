@@ -1,12 +1,9 @@
-"""
-Detector de objetos en tiempo real con YOLOv8
-Detección en webcam o archivos de video
-"""
-
 import cv2
-from ultralytics import YOLO
 import argparse
 import time
+import os
+from pathlib import Path
+from ultralytics import YOLO
 from src.utils.logging_utils import setup_logger
 
 class YOLODetector:
@@ -33,6 +30,43 @@ class YOLODetector:
                 test_cap.release()
         self.logger.info(f"Cámaras detectadas: {available}")
         return available
+
+    def detect_in_image(self, source_path, output_path=None):
+        """Nuevo método para procesar imágenes estáticas"""
+        self.logger.info(f"Abriendo fuente de imagen: {source_path}")
+        frame = cv2.imread(source_path)
+        
+        if frame is None:
+            self.logger.error(f"Error: No se pudo abrir la imagen {source_path}")
+            return
+
+        try:
+            results = self.model(frame, conf=self.confidence)
+        except Exception as exc:
+            self.logger.error(f"Error en la inferencia YOLO: {exc}")
+            return
+
+        if results is None or len(results) == 0:
+            self.logger.info("Inferencia completada sin resultados")
+            return
+
+        annotated_frame = results[0].plot()
+        detections = results[0].boxes
+        self.logger.info(f"Imagen procesada: {len(detections)} detecciones encontradas")
+
+        cv2.putText(annotated_frame,
+                    f"Detecciones: {len(detections)}",
+                    (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7, (0, 255, 0), 2)
+
+        if output_path:
+            cv2.imwrite(output_path, annotated_frame)
+            self.logger.info(f"Guardando imagen procesada en: {output_path}")
+        else:
+            cv2.imshow('YOLOv8 - Imagen', annotated_frame)
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
 
     def detect_in_video(self, source=0, output_path=None, max_frames=None):
         if isinstance(source, str) and source.isdigit():
@@ -160,34 +194,81 @@ class YOLODetector:
             self.logger.info(f"Total de frames procesados: {frame_count}")
 
 
+def process_examples_folder(detector, input_folder='examples', output_folder='output'):
+    """Recorre la carpeta y procesa todos los archivos de imagen y video"""
+    input_path = Path(input_folder)
+    output_path = Path(output_folder)
+    
+    # Extensiones soportadas
+    image_extensions = {'.jpg', '.jpeg', '.png'}
+    video_extensions = {'.mp4', '.avi', '.mov', '.mkv'}
+
+    if not input_path.exists():
+        detector.logger.error(f"La carpeta '{input_folder}' no existe.")
+        return
+
+    # Crear carpeta de salida si no existe
+    output_path.mkdir(parents=True, exist_ok=True)
+    detector.logger.info(f"Procesando recursos en '{input_folder}', guardando resultados en '{output_folder}'")
+
+    for file_path in input_path.iterdir():
+        if file_path.is_file():
+            ext = file_path.suffix.lower()
+            out_file = output_path / f"out_{file_path.name}"
+
+            if ext in image_extensions:
+                detector.logger.info(f"--- Procesando Imagen: {file_path.name} ---")
+                detector.detect_in_image(str(file_path), output_path=str(out_file))
+                
+            elif ext in video_extensions:
+                detector.logger.info(f"--- Procesando Video: {file_path.name} ---")
+                detector.detect_in_video(source=str(file_path), output_path=str(out_file))
+            else:
+                detector.logger.warning(f"Formato no soportado, omitiendo: {file_path.name}")
+
 def main():
-    parser = argparse.ArgumentParser(description='Detección YOLO en tiempo real')
+    parser = argparse.ArgumentParser(description='Detección YOLO en tiempo real y por lotes')
     parser.add_argument('--model', type=str, default='yolov8n.pt',
                         help='Modelo YOLO a usar (default: yolov8n.pt)')
-    parser.add_argument('--source', type=str, default='0',
-                        help='Fuente: 0=webcam, ruta del video, o URL (default: 0)')
+    parser.add_argument('--source', type=str, default='examples',
+                        help='Fuente: 0=webcam, ruta del video/imagen, o "examples" para procesar carpeta (default: examples)')
     parser.add_argument('--conf', type=float, default=0.5,
                         help='Umbral de confianza (0-1, default: 0.5)')
-    parser.add_argument('--output', type=str, default=None,
-                        help='Ruta para guardar video procesado (opcional)')
+    parser.add_argument('--output', type=str, default='output',
+                        help='Ruta de salida (default: carpeta "output")')
     parser.add_argument('--max-frames', type=int, default=None,
-                        help='Máximo de frames a procesar (default: todos)')
+                        help='Máximo de frames a procesar en videos (default: todos)')
     parser.add_argument('--scan-devices', action='store_true',
                         help='Escanear dispositivos de cámara disponibles y salir')
 
     args = parser.parse_args()
-    source = 0 if args.source == '0' else args.source
 
     logger = setup_logger('yolo_detector', log_file='logs/yolo_detector.log')
     logger.info('\n Iniciando detector YOLO')
+    
     detector = YOLODetector(model_name=args.model, confidence=args.conf, logger=logger)
+    
     if args.scan_devices:
         detector.scan_available_cameras(10)
         return
 
-    detector.detect_in_video(source=source, output_path=args.output,
-                            max_frames=args.max_frames)
-
+    # Logica de ruteo según la fuente (carpeta, imagen, video o webcam)
+    source_path = Path(args.source)
+    
+    if args.source.isdigit():
+        # Es una webcam
+        detector.detect_in_video(source=int(args.source), output_path=args.output, max_frames=args.max_frames)
+    elif source_path.is_dir():
+        # Es una carpeta
+        process_examples_folder(detector, input_folder=args.source, output_folder=args.output)
+    elif source_path.is_file():
+        # Es un archivo único
+        if source_path.suffix.lower() in {'.jpg', '.jpeg', '.png'}:
+            detector.detect_in_image(args.source, output_path=args.output)
+        else:
+            detector.detect_in_video(source=args.source, output_path=args.output, max_frames=args.max_frames)
+    else:
+        logger.error(f"Fuente '{args.source}' no reconocida o no existe.")
 
 if __name__ == '__main__':
     main()
