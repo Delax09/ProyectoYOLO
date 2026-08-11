@@ -1,7 +1,6 @@
 import cv2
 import argparse
 import time
-import os
 from pathlib import Path
 from ultralytics import YOLO
 from src.utils.logging_utils import setup_logger
@@ -32,9 +31,9 @@ class YOLODetector:
         return available
 
     def detect_in_image(self, source_path, output_path=None):
-        """Nuevo método para procesar imágenes estáticas"""
+        """Método para procesar imágenes estáticas"""
         self.logger.info(f"Abriendo fuente de imagen: {source_path}")
-        frame = cv2.imread(source_path)
+        frame = cv2.imread(str(source_path))
         
         if frame is None:
             self.logger.error(f"Error: No se pudo abrir la imagen {source_path}")
@@ -61,7 +60,7 @@ class YOLODetector:
                     0.7, (0, 255, 0), 2)
 
         if output_path:
-            cv2.imwrite(output_path, annotated_frame)
+            cv2.imwrite(str(output_path), annotated_frame)
             self.logger.info(f"Guardando imagen procesada en: {output_path}")
         else:
             cv2.imshow('YOLOv8 - Imagen', annotated_frame)
@@ -69,6 +68,7 @@ class YOLODetector:
             cv2.destroyAllWindows()
 
     def detect_in_video(self, source=0, output_path=None, max_frames=None):
+        """Método para procesar video con Object Tracking (ByteTrack)"""
         if isinstance(source, str) and source.isdigit():
             source = int(source)
 
@@ -134,7 +134,7 @@ class YOLODetector:
         writer = None
         if output_path:
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+            writer = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
             self.logger.info(f"Guardando en: {output_path}")
 
         frame_count = 0
@@ -155,18 +155,13 @@ class YOLODetector:
                     break
 
                 try:
-                    # ---------------------------------------------------------
-                    # MODIFICACIÓN PARA TRACKING
-                    # Usamos .track() en lugar de llamada directa.
-                    # persist=True mantiene el ID del objeto entre frames.
-                    # tracker="bytetrack.yaml" usa el algoritmo ByteTrack (muy rápido y preciso).
-                    # ---------------------------------------------------------
+                    # Inferencia usando Tracking
                     results = self.model.track(
                         frame, 
                         conf=self.confidence, 
                         persist=True, 
                         tracker="bytetrack.yaml",
-                        verbose=False # Apaga el log interno de YOLO por frame para no saturar tu logger
+                        verbose=False
                     )
                 except Exception as exc:
                     self.logger.error(f"Error en la inferencia YOLO: {exc}")
@@ -177,14 +172,14 @@ class YOLODetector:
                     frame_count += 1
                     continue
 
-                # results[0].plot() automáticamente dibujará los IDs de seguimiento
                 annotated_frame = results[0].plot()
                 detections = results[0].boxes
                 
-                # Extraer los IDs únicos detectados en este frame
                 track_ids = detections.id.int().cpu().tolist() if detections.id is not None else []
                 
-                self.logger.info(f"Frame {frame_count}: {len(detections)} detecciones. IDs rastreados: {track_ids}")
+                # Omitir logs excesivos por cada frame en consola, se deja info basica
+                if frame_count % 30 == 0:  # Imprimir log cada 30 frames para no saturar
+                    self.logger.info(f"Frame {frame_count}: {len(detections)} detecciones. IDs rastreados: {track_ids}")
 
                 cv2.putText(annotated_frame,
                             f"Objetos rastreados: {len(track_ids)}",
@@ -216,7 +211,6 @@ def process_examples_folder(detector, input_folder='examples', output_folder='ou
     input_path = Path(input_folder)
     output_path = Path(output_folder)
     
-    # Extensiones soportadas
     image_extensions = {'.jpg', '.jpeg', '.png'}
     video_extensions = {'.mp4', '.avi', '.mov', '.mkv'}
 
@@ -224,7 +218,6 @@ def process_examples_folder(detector, input_folder='examples', output_folder='ou
         detector.logger.error(f"La carpeta '{input_folder}' no existe.")
         return
 
-    # Crear carpeta de salida si no existe
     output_path.mkdir(parents=True, exist_ok=True)
     detector.logger.info(f"Procesando recursos en '{input_folder}', guardando resultados en '{output_folder}'")
 
@@ -235,7 +228,7 @@ def process_examples_folder(detector, input_folder='examples', output_folder='ou
 
             if ext in image_extensions:
                 detector.logger.info(f"--- Procesando Imagen: {file_path.name} ---")
-                detector.detect_in_image(str(file_path), output_path=str(out_file))
+                detector.detect_in_image(source_path=file_path, output_path=out_file)
                 
             elif ext in video_extensions:
                 detector.logger.info(f"--- Procesando Video: {file_path.name} ---")
@@ -243,8 +236,9 @@ def process_examples_folder(detector, input_folder='examples', output_folder='ou
             else:
                 detector.logger.warning(f"Formato no soportado, omitiendo: {file_path.name}")
 
+
 def main():
-    parser = argparse.ArgumentParser(description='Detección YOLO en tiempo real y por lotes')
+    parser = argparse.ArgumentParser(description='Detección YOLO en tiempo real y por lotes con Tracking')
     parser.add_argument('--model', type=str, default='yolov8n.pt',
                         help='Modelo YOLO a usar (default: yolov8n.pt)')
     parser.add_argument('--source', type=str, default='examples',
@@ -261,7 +255,7 @@ def main():
     args = parser.parse_args()
 
     logger = setup_logger('yolo_detector', log_file='logs/yolo_detector.log')
-    logger.info('Iniciando detector YOLO')
+    logger.info('\n Iniciando detector YOLO')
     
     detector = YOLODetector(model_name=args.model, confidence=args.conf, logger=logger)
     
@@ -269,17 +263,13 @@ def main():
         detector.scan_available_cameras(10)
         return
 
-    # Logica de ruteo según la fuente (carpeta, imagen, video o webcam)
     source_path = Path(args.source)
     
     if args.source.isdigit():
-        # Es una webcam
         detector.detect_in_video(source=int(args.source), output_path=args.output, max_frames=args.max_frames)
     elif source_path.is_dir():
-        # Es una carpeta
         process_examples_folder(detector, input_folder=args.source, output_folder=args.output)
     elif source_path.is_file():
-        # Es un archivo único
         if source_path.suffix.lower() in {'.jpg', '.jpeg', '.png'}:
             detector.detect_in_image(args.source, output_path=args.output)
         else:
