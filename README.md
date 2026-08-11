@@ -2,6 +2,9 @@
 
 Detección de objetos con YOLOv8. Este repositorio está organizado para facilitar desarrollo, pruebas y despliegue.
 
+ejecucion en la consonal 
+- python -m src.detector.yolo_detector --source examples
+
 **Estructura del proyecto (propuesta aplicada)**
 
 - `configs/` : configuraciones YAML/JSON (ej. `data_example.yaml`).
