@@ -4,6 +4,7 @@ Detección de objetos con YOLOv8. Este repositorio está organizado para facilit
 
 ejecucion en la consonal 
 - python -m src.detector.yolo_detector --source examples
+- python -m src.detector.yolo_detector --source examples/VideoPersonas.mp4
 
 **Estructura del proyecto (propuesta aplicada)**
 
