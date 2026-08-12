@@ -1,0 +1,27 @@
+{
+    "zonas": [
+        {
+            "id": 1,
+            "nombre": "Zona Restringida",
+            "tipo": "restringida",
+            "puntos": [
+                [
+                    150,
+                    150
+                ],
+                [
+                    450,
+                    150
+                ],
+                [
+                    550,
+                    400
+                ],
+                [
+                    50,
+                    400
+                ]
+            ]
+        }
+    ]
+}
