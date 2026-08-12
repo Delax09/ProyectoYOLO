@@ -1,0 +1,12 @@
+# Ignorar byte-compiled / optimizados
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+
+# Ignorar caches de pytest
+.pytest_cache/
+
+# Ignorar artefactos generados por ejecuciones
+/logs/
+/output/
