@@ -139,7 +139,9 @@ class YOLODetector:
             "zona_evaluada": zona_nombre,
             "resumen": {
                 "total_detecciones": len(detections),
-                "objetos_en_zona": 0
+                "objetos_en_zona": 0,
+                "personas_en_zona_restringida": 0,
+                "personas_fuera_zona_restringida": 0
             },
             "detecciones": []
         }
@@ -158,8 +160,12 @@ class YOLODetector:
 
                 if in_zone:
                     reporte_data["resumen"]["objetos_en_zona"] += 1
+                    if class_name == "person":
+                        reporte_data["resumen"]["personas_en_zona_restringida"] += 1
                     color = (0, 0, 255) # Rojo si está en la zona
                 else:
+                    if class_name == "person":
+                        reporte_data["resumen"]["personas_fuera_zona_restringida"] += 1
                     color = (0, 255, 0) # Verde si está fuera
 
                 # Agregar detalle de cada detección al reporte JSON
@@ -167,9 +173,9 @@ class YOLODetector:
                     "id_int_frame": i + 1,
                     "clase": class_name,
                     "confianza": float(round(conf, 2)),
-                    "bbox": [x1, y1, x2, y2],
-                    "punto_contacto": [cx, cy],
-                    "en_zona_restringida": in_zone
+                    "bbox": [int(x1), int(y1), int(x2), int(y2)],
+                    "punto_contacto": [int(cx), int(cy)],
+                    "en_zona_restringida": bool(in_zone)
                 })
 
                 # Dibujar en la imagen
@@ -325,16 +331,26 @@ class YOLODetector:
                 active_alerts = alert_manager.evaluate_detections(detections, current_time)
                 alert_track_ids = [alert["track_id"] for alert in active_alerts]
 
+                # Contadores de personas por zona
+                personas_en_zona = 0
+                personas_fuera_zona = 0
                 track_ids_list = []
                 if detections is not None and len(detections) > 0:
                     coords = detections.xyxy.cpu().numpy()
                     track_ids = detections.id.int().cpu().numpy() if detections.id is not None else [None] * len(coords)
                     
                     for box, track_id in zip(coords, track_ids):
-                        if track_id is not None: track_ids_list.append(track_id)
+                        if track_id is not None: track_ids_list.append(int(track_id))
                         
                         x1, y1, x2, y2 = map(int, box)
                         cx, cy = int((x1 + x2) / 2), int(y2)
+                        
+                        # Verificar si el punto de contacto está en la zona
+                        in_zone = alert_manager.is_point_in_zone(cx, cy)
+                        if in_zone:
+                            personas_en_zona += 1
+                        else:
+                            personas_fuera_zona += 1
                         
                         # Colores: Rojo si hay alerta de permanencia, Verde si está normal
                         color = (0, 0, 255) if track_id in alert_track_ids else (0, 255, 0)
@@ -360,7 +376,7 @@ class YOLODetector:
                 if frame_count % 30 == 0:
                     self.logger.info(f"Frame {frame_count}: {len(detections)} det. IDs: {track_ids_list}. Alertas activas: {len(active_alerts)}")
 
-                cv2.putText(annotated_frame, f"Rastreados: {len(track_ids_list)} | Alertas: {len(active_alerts)}", 
+                cv2.putText(annotated_frame, f"En zona: {personas_en_zona} | Fuera: {personas_fuera_zona} | Alertas: {len(active_alerts)}", 
                             (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
                 cv2.imshow('YOLOv8 - Control de Zonas y Permanencia', annotated_frame)
