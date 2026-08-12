@@ -1,9 +1,55 @@
 import cv2
 import argparse
 import time
+import numpy as np
 from pathlib import Path
 from ultralytics import YOLO
 from src.utils.logging_utils import setup_logger
+
+"""
+Para los Bounding Boxes, YOLO devuelve las coordenadas
+y necesitamos calcular los centroides de cada caja con la siguiente formula: 
+
+Calculos de Centroides 
+
+c_x = (x1 + x2) / 2
+c_y = (y1 + y2) / 2
+"""
+
+class ZoneAnalyzer:
+    def __init__(self, zone_polygon):
+        self.zone = np.array(zone_polygon, np.int32)
+        self.zone = self.zone.reshape((-1, 1, 2))
+
+    def is_point_in_zone(self, point):
+        result = cv2.pointPolygonTest(self.zone, point, measureDist=False)
+        return result >= 0
+
+    def draw_zone(self, frame, is_alert=False):
+        color = (0, 0, 255) if is_alert else (255, 0, 0) # Rojo (Alerta) o Azul (Normal)
+        cv2.polylines(frame, [self.zone], isClosed=True, color=color, thickness=2)
+        
+        # Efecto transparente
+        overlay = frame.copy()
+        cv2.fillPoly(overlay, [self.zone], color)
+        cv2.addWeighted(overlay, 0.2, frame, 0.8, 0, frame)
+
+def resolve_output_path(output_path, source_path=None, default_ext='.jpg'):
+    """Resuelve la ruta de salida para archivos o carpetas."""
+    output = Path(output_path) if output_path is not None else Path('output')
+
+    if output.suffix:
+        return output
+
+    if source_path is not None:
+        source_name = Path(source_path).name
+        resolved = output / f"out_{source_name}"
+        if not resolved.suffix:
+            resolved = resolved.with_suffix(default_ext)
+        return resolved
+
+    return output / f"output{default_ext}"
+
 
 class YOLODetector:
     def __init__(self, model_name='yolov8n.pt', confidence=0.5, logger=None):
@@ -59,9 +105,11 @@ class YOLODetector:
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.7, (0, 255, 0), 2)
 
-        if output_path:
-            cv2.imwrite(str(output_path), annotated_frame)
-            self.logger.info(f"Guardando imagen procesada en: {output_path}")
+        final_output = resolve_output_path(output_path, source_path=source_path, default_ext='.jpg')
+        if final_output is not None:
+            final_output.parent.mkdir(parents=True, exist_ok=True)
+            cv2.imwrite(str(final_output), annotated_frame)
+            self.logger.info(f"Guardando imagen procesada en: {final_output}")
         else:
             cv2.imshow('YOLOv8 - Imagen', annotated_frame)
             cv2.waitKey(0)
@@ -132,12 +180,19 @@ class YOLODetector:
         self.logger.info(f"Video: {width}x{height} @ {fps} FPS")
 
         writer = None
-        if output_path:
+        final_output = resolve_output_path(output_path, source_path=source, default_ext='.mp4')
+        if final_output is not None:
+            final_output.parent.mkdir(parents=True, exist_ok=True)
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            writer = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
-            self.logger.info(f"Guardando en: {output_path}")
+            writer = cv2.VideoWriter(str(final_output), fourcc, fps, (width, height))
+            self.logger.info(f"Guardando en: {final_output}")
 
         frame_count = 0
+
+        #Definimos los puntos de nuestra zona (puedes ajustarlos a tu cámara)
+        #Formato: [(x1, y1), (x2, y2), (x3, y3), (x4, y4)]
+        zone_points = [(150, 150), (450, 150), (550, 400), (50, 400)]
+        zone_analyzer = ZoneAnalyzer(zone_points)
 
         try:
             while True:
@@ -172,22 +227,58 @@ class YOLODetector:
                     frame_count += 1
                     continue
 
-                annotated_frame = results[0].plot()
+                # --- INICIO DE NUEVA LÓGICA DE BOUNDING BOXES Y ZONAS ---
+                
+                annotated_frame = frame.copy() # Copiamos el frame original para dibujar manualmente
                 detections = results[0].boxes
                 
                 track_ids = detections.id.int().cpu().tolist() if detections.id is not None else []
-                
-                # Omitir logs excesivos por cada frame en consola, se deja info basica
-                if frame_count % 30 == 0:  # Imprimir log cada 30 frames para no saturar
-                    self.logger.info(f"Frame {frame_count}: {len(detections)} detecciones. IDs rastreados: {track_ids}")
+                objects_in_zone = 0
 
-                cv2.putText(annotated_frame,
-                            f"Objetos rastreados: {len(track_ids)}",
-                            (10, 30),
-                            cv2.FONT_HERSHEY_SIMPLEX,
-                            0.7, (0, 255, 0), 2)
+                if detections is not None and len(detections) > 0:
+                    coords = detections.xyxy.cpu().numpy() # Extraemos coordenadas x1, y1, x2, y2
+                    
+                    # Iteramos sobre cada Bounding Box detectada
+                    for i, box in enumerate(coords):
+                        x1, y1, x2, y2 = map(int, box)
+                        track_id = track_ids[i] if i < len(track_ids) else None
+                        
+                        # Definimos el punto de interés (el centro inferior de la caja)
+                        cx = int((x1 + x2) / 2)
+                        cy = int(y2)
+                        
+                        # Verificamos si el objeto tocó la zona
+                        in_zone = zone_analyzer.is_point_in_zone((cx, cy))
+                        
+                        if in_zone:
+                            objects_in_zone += 1
+                            color = (0, 0, 255) # Bounding Box Roja si invade
+                        else:
+                            color = (0, 255, 0) # Bounding Box Verde si está fuera
 
-                cv2.imshow('YOLOv8 - Tracking en Tiempo Real', annotated_frame)
+                        # Dibujamos nuestra propia Bounding Box y el punto de referencia
+                        cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
+                        cv2.circle(annotated_frame, (cx, cy), 5, color, -1)
+                        
+                        # Dibujamos el ID
+                        label = f"ID: {track_id}" if track_id is not None else "Obj"
+                        cv2.putText(annotated_frame, label, (x1, y1 - 10),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
+                # Dibujamos el polígono en el frame (cambia de color si hay objetos dentro)
+                zone_analyzer.draw_zone(annotated_frame, is_alert=(objects_in_zone > 0))
+
+                # --- FIN DE NUEVA LÓGICA ---
+
+                # Logs de consola
+                if frame_count % 30 == 0:
+                    self.logger.info(f"Frame {frame_count}: {len(detections)} detecciones. IDs: {track_ids}. En Zona: {objects_in_zone}")
+
+                # Textos generales en pantalla
+                cv2.putText(annotated_frame, f"Rastreados: {len(track_ids)} | En Zona: {objects_in_zone}", 
+                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+
+                cv2.imshow('YOLOv8 - Tracking y Zonas', annotated_frame)
 
                 if writer:
                     writer.write(annotated_frame)
