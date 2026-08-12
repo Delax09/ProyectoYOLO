@@ -1,8 +1,0 @@
-{
-    "chat.tools.terminal.autoApprove": {
-        "/^& 'C:\\\\Users\\\\fmejias\\\\AppData\\\\Local\\\\Python\\\\pythoncore-3\\.14-64\\\\python\\.exe' -c \"import shutil, sys; shutil\\.move\\('ImagenPersonas\\.jpg','examples/ImagenPersonas\\.jpg'\\); print\\('moved'\\)\"$/": {
-            "approve": true,
-            "matchCommandLine": true
-        }
-    }
-}
