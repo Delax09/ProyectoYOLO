@@ -1,115 +1,68 @@
-"""Detect objects in images using the new service-oriented architecture."""
 import argparse
 import cv2
-from pathlib import Path
-from src.core.config_manager import get_config_manager
-from src.services import DetectionService
+from ultralytics import YOLO
 from src.utils.logging_utils import setup_logger
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(
-        description='Detección de objetos en imágenes con YOLOv8 (Arquitectura Escalable)'
-    )
-    parser.add_argument(
-        '--image', '-i', 
-        required=True, 
-        help='Ruta a la imagen de entrada'
-    )
-    parser.add_argument(
-        '--config', '-c',
-        default='config/app.yaml',
-        help='Ruta al archivo de configuración (default: config/app.yaml)'
-    )
-    parser.add_argument(
-        '--output', '-o',
-        default='output/detection_result',
-        help='Ruta de salida (sin extensión)'
-    )
-    parser.add_argument(
-        '--target-class', '-t',
-        default='person',
-        help='Clase a contar/filtrar (default: person)'
-    )
-    parser.add_argument(
-        '--show', 
-        action='store_true',
-        help='Mostrar imagen anotada'
-    )
+    parser = argparse.ArgumentParser(description='Detectar personas en una imagen con YOLOv8')
+    parser.add_argument('--image', '-i', required=True, help='Ruta a la imagen de entrada')
+    parser.add_argument('--model', '-m', default='yolov8n.pt', help='Ruta al archivo de modelo YOLO (default: yolov8n.pt)')
+    parser.add_argument('--conf', '-c', type=float, default=0.5, help='Umbral de confianza (0-1)')
+    parser.add_argument('--output', '-o', default='output.jpg', help='Ruta de la imagen anotada de salida')
+    parser.add_argument('--target-class', '-t', default='person', help='Nombre de la clase a contar (default: person)')
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
     logger = setup_logger('detect_image', log_file='logs/detect_image.log')
-    logger.info("=== Iniciando detección de imágenes ===")
-    logger.info(f"Imagen: {args.image}")
-    logger.info(f"Configuración: {args.config}")
+    logger.info(f"Cargando modelo: {args.model}")
 
     try:
-        # Cargar configuración
-        config_manager = get_config_manager(Path(args.config))
-        
-        # Inicializar servicio de detección
-        detection_service = DetectionService(config_manager)
-        logger.info(f"Modelo: {detection_service.get_detector_info()}")
-        
-        # Procesar imagen
-        detections = detection_service.detect_image(args.image)
-        logger.info(f"Detecciones encontradas: {len(detections)}")
-        
-        # Filtrar por clase si es necesario
-        filtered_detections = [
-            d for d in detections 
-            if d.class_name == args.target_class
-        ]
-        
-        logger.info(f"Instancias de '{args.target_class}': {len(filtered_detections)}")
-        
-        # Anotar imagen
-        img = cv2.imread(args.image)
-        annotated = detection_service.annotate_frame(img, detections)
-        
-        # Agregar texto de conteo
-        cv2.putText(
-            annotated,
-            f"{args.target_class}: {len(filtered_detections)}",
-            (10, 30),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            1.0, (0, 255, 0), 2
-        )
-        
-        # Guardar resultado
-        output_path = Path(args.output)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        image_output = output_path.parent / f"{output_path.name}_annotated.jpg"
-        cv2.imwrite(str(image_output), annotated)
-        logger.info(f"Imagen anotada guardada: {image_output}")
-        
-        # Guardar resultados en JSON/CSV
-        detection_service.save_results(
-            detections,
-            [],
-            output_path.name,
-            metadata={'image_path': args.image}
-        )
-        
-        # Mostrar si se solicitó
-        if args.show:
-            cv2.imshow('Detecciones', annotated)
-            print(f"Presiona cualquier tecla para salir...")
-            cv2.waitKey(0)
-            cv2.destroyAllWindows()
-        
-        print(f"\n✓ Detección completada!")
-        print(f"  - Total de objetos: {len(detections)}")
-        print(f"  - {args.target_class}: {len(filtered_detections)}")
-        print(f"  - Salida: {image_output}")
-        
-    except Exception as e:
-        logger.error(f"Error durante la detección: {e}", exc_info=True)
+        model = YOLO(args.model)
+    except Exception as exc:
+        logger.error(f"No se pudo cargar el modelo: {exc}")
+        raise
+
+    class_names = model.names
+    logger.info(f"Clases cargadas: {len(class_names)}")
+
+    img = cv2.imread(args.image)
+    if img is None:
+        logger.error(f"No se pudo leer la imagen: {args.image}")
         raise SystemExit(1)
+
+    logger.info(f"Ejecutando inferencia sobre: {args.image}")
+    results = model(img, conf=args.conf)
+
+    if results is None or len(results) == 0:
+        logger.info("No se obtuvieron resultados de inferencia")
+        annotated = img
+        count = 0
+    else:
+        r = results[0]
+        boxes = r.boxes
+        count = 0
+        for box in boxes:
+            cls_id = int(box.cls[0])
+            name = class_names.get(cls_id, str(cls_id)) if isinstance(class_names, dict) else class_names[cls_id]
+            if name == args.target_class:
+                count += 1
+
+        annotated = r.plot()
+
+    logger.info(f"Número de '{args.target_class}': {count}")
+
+    cv2.putText(annotated,
+                f"{args.target_class}: {count}",
+                (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1.0, (0, 255, 0), 2)
+
+    cv2.imwrite(args.output, annotated)
+    logger.info(f"Imagen anotada guardada en: {args.output}")
+    print(count)
 
 
 if __name__ == '__main__':
