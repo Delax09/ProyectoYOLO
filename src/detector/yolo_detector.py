@@ -57,7 +57,7 @@ class YOLODetector:
             logger = setup_logger('yolo_detector', log_file='logs/yolo_detector.log')
         self.logger = logger
         self.logger.info(f"Cargando modelo {model_name}...")
-        self.model = YOLO(model_name)
+        self.model = YOLO(model_name, task='detect')
         self.logger.info(type(self.model))
         self.confidence = confidence
         self.class_names = self.model.names

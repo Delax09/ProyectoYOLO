@@ -1862,3 +1862,19 @@
 2026-08-12 09:34:00,476 - yolo_detector - INFO - Abriendo fuente de imagen: examples/ImagenPersonasIA2.png
 2026-08-12 09:34:06,266 - yolo_detector - INFO - Imagen procesada: 6 detecciones encontradas
 2026-08-12 09:34:06,328 - yolo_detector - INFO - Guardando imagen procesada en: output\out_ImagenPersonasIA2.png
+2026-08-12 09:38:15,627 - yolo_detector - INFO - 
+ Iniciando detector YOLO
+2026-08-12 09:38:15,629 - yolo_detector - INFO - Cargando modelo yolov8n.pt...
+2026-08-12 09:38:15,689 - yolo_detector - INFO - <class 'ultralytics.models.yolo.model.YOLO'>
+2026-08-12 09:38:15,691 - yolo_detector - INFO - Modelo cargado con 80 clases
+2026-08-12 09:38:15,694 - yolo_detector - INFO - Abriendo fuente de imagen: examples/ImagenPersonas.jpg
+2026-08-12 09:38:19,536 - yolo_detector - INFO - Imagen procesada: 5 detecciones encontradas
+2026-08-12 09:38:19,547 - yolo_detector - INFO - Guardando imagen procesada en: output\out_ImagenPersonas.jpg
+2026-08-12 09:38:46,488 - yolo_detector - INFO - 
+ Iniciando detector YOLO
+2026-08-12 09:38:46,491 - yolo_detector - INFO - Cargando modelo yolov8n.pt...
+2026-08-12 09:38:46,704 - yolo_detector - INFO - <class 'ultralytics.models.yolo.model.YOLO'>
+2026-08-12 09:38:46,706 - yolo_detector - INFO - Modelo cargado con 80 clases
+2026-08-12 09:38:46,709 - yolo_detector - INFO - Abriendo fuente de imagen: examples/ImagenPersonas.jpg
+2026-08-12 09:38:50,612 - yolo_detector - INFO - Imagen procesada: 5 detecciones encontradas
+2026-08-12 09:38:50,620 - yolo_detector - INFO - Guardando imagen procesada en: output\out_ImagenPersonas.jpg
