@@ -27,8 +27,8 @@ def load_zone_config(config_path="config/zonas.json"):
 
         return data["zonas"]
 
-    #Zona de prueba
-    return [], "Zona Desconocida"
+    # Si no existe el archivo, devolvemos una lista vacía (mismo tipo que arriba)
+    return []
 
 def process_video(source, output_dir, detector, zones):
     cap = cv2.VideoCapture(source)
@@ -234,7 +234,19 @@ def main():
         if ext in video_extensions:
             process_video(args.source, args.output, detector, zones)
         elif ext in image_extensions:
-            process_image(args.source, args.output, detector, zones)
+            if not zones:
+                logger.error("No hay zonas definidas en config/zonas.json")
+                return
+            # AlertManager evalúa UNA zona: usamos la primera (la restringida),
+            # igual que hace process_video con zones[0].
+            primary_zone = zones[0]
+            process_image(
+                args.source,
+                args.output,
+                detector,
+                primary_zone["puntos"],
+                primary_zone["nombre"],
+            )
         else:
             logger.error(f"Extensión no soportada: {ext}")
     else:
