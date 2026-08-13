@@ -131,14 +131,22 @@ def process_video(source, output_dir, detector, zones):
             writer.release()
         cv2.destroyAllWindows()
 
-def process_image(source, output_dir, detector, zone_points, zone_name):
+def process_image(source, output_dir, detector, zones): # <-- Cambia la firma de la función
     frame = cv2.imread(str(source))
     if frame is None:
         detector.logger.error(f"Error: No se pudo abrir la imagen {source}")
         return
 
     height, width = frame.shape[:2]
-    alert_manager = AlertManager(zone_points, frame_shape=(height, width))
+    
+    # --- Cambio principal: Instanciar AlertManager para cada zona ---
+    zone_managers = []
+    for z in zones:
+        zone_managers.append({
+            "config": z,
+            "manager": AlertManager(z["puntos"], frame_shape=(height, width)),
+            "objetos_en_zona": 0 
+        })
     
     results = detector.predict_image(frame)
     if not results or len(results) == 0:
@@ -152,10 +160,9 @@ def process_image(source, output_dir, detector, zone_points, zone_name):
         "archivo_origen": str(source),
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "dimensiones": {"alto": height, "ancho": width},
-        "zona_evaluada": zone_name,
         "resumen": {
             "total_detecciones": len(detections),
-            "objetos_en_zona": 0
+            "detalle_zonas": { z["nombre"]: 0 for z in zones } # Resumen dinámico
         },
         "detecciones": []
     }
@@ -170,13 +177,18 @@ def process_image(source, output_dir, detector, zone_points, zone_name):
             cx, cy = int((x1 + x2) / 2), int(y2)
             
             class_name = detector.class_names.get(int(cls), "Desconocido")
-            in_zone = alert_manager.is_point_in_zone(cx, cy)
+            
+            zonas_detectadas = []
+            color_deteccion = (0, 255, 0) # Verde por defecto (fuera de zona)
 
-            if in_zone:
-                reporte_data["resumen"]["objetos_en_zona"] += 1
-                color = (0, 0, 255)
-            else:
-                color = (0, 255, 0)
+            # --- Cambio principal: Iterar para verificar si el punto está en CUALQUIER zona ---
+            for zm in zone_managers:
+                 if zm["manager"].is_point_in_zone(cx, cy):
+                     zonas_detectadas.append(zm["config"]["nombre"])
+                     zm["objetos_en_zona"] += 1
+                     reporte_data["resumen"]["detalle_zonas"][zm["config"]["nombre"]] += 1
+                     color_deteccion = (0, 0, 255) # Rojo si está en alguna zona
+                     break # Opcional: Detener la búsqueda si solo puede estar en una zona
 
             reporte_data["detecciones"].append({
                 "id_int_frame": i + 1,
@@ -184,19 +196,31 @@ def process_image(source, output_dir, detector, zone_points, zone_name):
                 "confianza": float(round(conf, 2)),
                 "bbox": [x1, y1, x2, y2],
                 "punto_contacto": [cx, cy],
-                "en_zona_restringida": bool(in_zone)
+                "en_zonas": zonas_detectadas # Ahora es una lista de zonas
             })
 
-            cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
-            cv2.circle(annotated_frame, (cx, cy), 5, color, -1)
+            cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color_deteccion, 2)
+            cv2.circle(annotated_frame, (cx, cy), 5, color_deteccion, -1)
             label = f"{class_name} {conf:.2f}"
-            cv2.putText(annotated_frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+            cv2.putText(annotated_frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_deteccion, 2)
 
-    # Dibujar polígono estático
-    pts = np.array(zone_points, np.int32).reshape((-1, 1, 2))
-    zone_color = (0, 0, 255) if reporte_data["resumen"]["objetos_en_zona"] > 0 else (255, 0, 0)
-    cv2.polylines(annotated_frame, [pts], isClosed=True, color=zone_color, thickness=2)
-    cv2.putText(annotated_frame, f"Total: {len(detections)} | En Zona: {reporte_data['resumen']['objetos_en_zona']}",
+    # --- Cambio principal: Dibujar todos los polígonos estáticos iterando las zonas ---
+    for zm in zone_managers:
+        pts = np.array(zm["config"]["puntos"], np.int32).reshape((-1, 1, 2))
+        
+        # Color del polígono dependiendo de si hay objetos dentro
+        zone_color = (0, 0, 255) if zm["objetos_en_zona"] > 0 else (255, 0, 0)
+        
+        cv2.polylines(annotated_frame, [pts], isClosed=True, color=zone_color, thickness=2)
+        
+        # Etiqueta de la zona opcional (si quieres mostrar nombres en pantalla)
+        x_min = np.min(pts[:, 0, 0])
+        y_min = np.min(pts[:, 0, 1])
+        cv2.putText(annotated_frame, f"{zm['config']['nombre']}: {zm['objetos_en_zona']}",
+                    (x_min, y_min - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, zone_color, 2)
+
+    # Texto general superior
+    cv2.putText(annotated_frame, f"Total detectados: {len(detections)}",
                 (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
     if output_dir:
@@ -244,8 +268,7 @@ def main():
                 args.source,
                 args.output,
                 detector,
-                primary_zone["puntos"],
-                primary_zone["nombre"],
+                zones
             )
         else:
             logger.error(f"Extensión no soportada: {ext}")

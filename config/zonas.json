@@ -13,8 +13,8 @@
         },
         {
             "id": 2,
-            "nombre": "Franja de Conteo",
-            "tipo": "cruce",
+            "nombre": "Zona de Peligro",
+            "tipo": "Advertencia",
             "puntos": [
                 [600, 100],
                 [650, 100],
