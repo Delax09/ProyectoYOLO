@@ -8,6 +8,7 @@ class AlertManager:
         self.dwell_threshold = dwell_threshold_sec
         self.track_timers = {}  # {track_id: timestamp_ingreso}
         self.polygon_coords = polygon_coords
+        self.counted_ids = set() #Registra ID unico 
         
         # Generar máscara binaria una sola vez durante la inicialización
         self.mask = np.zeros(frame_shape[:2], dtype=np.uint8)
@@ -35,6 +36,9 @@ class AlertManager:
             # Centro inferior de la Bounding Box (contacto con el suelo)
             foot_x, foot_y = int((x1 + x2) / 2), int(y2)
 
+            if track_id not in self.counted_ids:
+                self.counted_ids.add(track_id)  
+
             if self.is_point_in_zone(foot_x, foot_y):
                 current_ids_in_zone.add(track_id)
                 if track_id not in self.track_timers:
@@ -54,3 +58,7 @@ class AlertManager:
                 del self.track_timers[tid]
 
         return active_alerts
+
+    #Muestra el total de personas que cruzaron 
+    def get_total_count(self) -> int:
+        return len(self.counted_ids)
