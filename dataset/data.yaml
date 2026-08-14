@@ -1,5 +1,5 @@
-train: ../train/images
-val: ../valid/images
+train: ./dataset/train/images
+val: ./dataset/train/images
 
 nc: 1
 names: ['grano_maiz']
