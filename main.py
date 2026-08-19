@@ -183,12 +183,12 @@ def process_image(source, output_dir, detector, zones): # <-- Cambia la firma de
 
             # --- Cambio principal: Iterar para verificar si el punto está en CUALQUIER zona ---
             for zm in zone_managers:
-                 if zm["manager"].is_point_in_zone(cx, cy):
-                     zonas_detectadas.append(zm["config"]["nombre"])
-                     zm["objetos_en_zona"] += 1
-                     reporte_data["resumen"]["detalle_zonas"][zm["config"]["nombre"]] += 1
-                     color_deteccion = (0, 0, 255) # Rojo si está en alguna zona
-                     break # Opcional: Detener la búsqueda si solo puede estar en una zona
+                if zm["manager"].is_point_in_zone(cx, cy):
+                    zonas_detectadas.append(zm["config"]["nombre"])
+                    zm["objetos_en_zona"] += 1
+                    reporte_data["resumen"]["detalle_zonas"][zm["config"]["nombre"]] += 1
+                    color_deteccion = (0, 0, 255) # Rojo si está en alguna zona
+                    break # Opcional: Detener la búsqueda si solo puede estar en una zona
 
             reporte_data["detecciones"].append({
                 "id_int_frame": i + 1,
